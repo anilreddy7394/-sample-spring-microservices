@@ -1,79 +1,49 @@
+
 pipeline {
-
-    agent {
-        node {
-            label 'master'
-        }
+    tools { 
+        maven "Maven3"
     }
-
-    options {
-        buildDiscarder logRotator( 
-                    daysToKeepStr: '16', 
-                    numToKeepStr: '10'
-            )
-    }
-
-    stages {
     
-     stage('build') {
+    environment {
+        registry = "353258999787.dkr.ecr.us-east-1.amazonaws.com/my-demo-repo"
+    }
+    
+    agent any
+  
+    stages {
+        stage('checkout') {
             steps {
-                sh 'mvn --version'
+                checkout scmGit(branches: [[name: '*/master']], extensions: [], userRemoteConfigs: [[url: 'https://github.com/anilreddy7394/-sample-spring-microservices.git']])
             }
         }
         
-        stage('Cleanup Workspace') {
+        stage('Build Jar') {
             steps {
-                cleanWs()
-                sh """
-
-                echo "Cleaned Up Workspace For Project"
-
-                echo "Cleaned Up Workspace For Project wbdwejhbf"
-
-                """
+                sh "mvn clean install"
             }
         }
-
-        stage('Code Checkout') {
+        
+        stage('Build image') {
             steps {
-                checkout([
-                    $class: 'GitSCM', 
-                    branches: [[name: '*/main']], 
-                    userRemoteConfigs: [[url: 'https://github.com/anilreddy7394/-sample-spring-microservices.git']]
-                ])
+                script {
+                    docker.build registry
+                }
             }
         }
-
-        stage(' Unit Testing') {
+        
+        stage('Push into ECR') {
             steps {
-                sh """
-                echo "Running Unit Tests"
-                """
+                sh "aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 353258999787.dkr.ecr.us-east-1.amazonaws.com"
+                sh "docker push 353258999787.dkr.ecr.us-east-1.amazonaws.com/my-demo-repo:latest"
             }
         }
-
-        stage('Code Analysis') {
-            steps {
-                sh """
-                echo "Running Code Analysis"
-                """
+        
+        stage('K8S Deploy') {
+            steps{
+                withKubeConfig(caCertificate: '', clusterName: '', contextName: '', credentialsId: 'K8S', namespace: '', serverUrl: '') {
+                sh "kubectl apply -f eks-deploy-k8s.yaml"
             }
-        }
-
-        stage('Build Deploy Code') {
-            when {
-                branch 'develop'
-            }
-            steps {
-                sh """
-                echo "Building Artifact"
-                """
-
-                sh """
-                echo "Deploying Code"
-                """
-            }
-        }
-
-    }   
+          }
+       }
+    }
 }
